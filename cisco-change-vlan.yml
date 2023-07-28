@@ -1,0 +1,53 @@
+---
+- name: change port vlan
+  hosts: all
+  connection: local
+  gather_facts: no
+  
+  #update the vlan variables as applicable
+  vars:
+     vlan_parse_path: ./vlan-parser.yml
+     old_vlan_id: 1400
+     new_vlan_id: 61
+  
+  tasks:
+
+# Get the standard output of show vlan command and store it in a variable
+  - name: get vlan info
+    ios_command:
+      commands: show vlan
+    register: vlan_output
+
+# run the show vlan output through a parser to convert it to sturctured data
+  - name: generate fact from vlan output
+    set_fact:
+      ios_vlans: "{{vlan_output.stdout[0] | parse_cli(vlan_parse_path)}}"
+ 
+# itterate through the structured data, locate the data vlan, and copy it contencts to a variable 
+  - name: capture data vlan data structure
+    set_fact: 
+      data_vlan_schema: "{{item}}"
+    with_items: "{{ios_vlans.vlans}}"
+    when: item.id == old_vlan_id
+ 
+# access the data vlan variable and itterate through all of the assigned ports, making the required changes 
+  - name: change the user switchports
+    ios_config: 
+      lines:
+        - "switchport access vlan {{new_vlan_id}}"
+      parents: "interface {{item}}"
+      before: 
+        - "interface {{item}}"
+        - shutdown
+      after:
+        - "interface {{item}}"
+        - no shutdown
+    with_items: "{{data_vlan_schema.ports}}"
+    ignore_errors: yes
+
+ 
+ ##### SAVE CONFIG #####
+
+  - name: save config
+    ios_config:
+      save_when: always
